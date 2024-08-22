@@ -17,12 +17,11 @@ class BaseModel():
     def to_dict(self):
         return self.__dict__
 
-class Association(db.Model, BaseModel):
+class GamePlayerAssociation(db.Model):
     """Association table between players and games"""
     __tablename__ = "game_players"
-    id = db.Column(db.Integer, primary_key=True)
-    player_id = db.Column(db.Integer, db.ForeignKey("players.id"))
-    game_id = db.Column(db.Integer, db.ForeignKey("games.id"))
+    player_id = db.Column(db.Integer, db.ForeignKey("players.id"), primary_key=True)
+    game_id = db.Column(db.Integer, db.ForeignKey("games.id"), primary_key=True)
     player = db.relationship("Player", backref="played_games")
     game = db.relationship("Game", backref="game_players")
 
@@ -36,8 +35,8 @@ class Player(db.Model, BaseModel):
     password = db.Column(db.String(25), nullable=False)
     playing = db.Column(db.Boolean, default=False) # This would come in handy if we choose to prohibit a user playing multiple games simultaneously
     score = db.Column(db.Integer, default=0)
-    moves = db.relationship("Move", backref="player",
-                            cascade="all, delete, delete-orphan")
+    moves = db.relationship("Move", backref="moving_player")
+    messages = db.relationship("Message", backref="messaging_player")
 
 
 class Game(db.Model, BaseModel):
@@ -48,8 +47,9 @@ class Game(db.Model, BaseModel):
     code = db.Column(db.String(10), unique=True)
     difficulty = db.Column(db.Integer, default=0)
     finished = db.Column(db.Boolean, default=False)
-    moves = db.relationship("Move", backref="game",
+    moves = db.relationship("Move", backref="moved_game", # For lack of a better term
                             cascade="all, delete, delete-orphan")
+    messages = db.relationship("Message", backref="messaged_game")
 
 
 class Move(db.Model, BaseModel):
@@ -59,3 +59,28 @@ class Move(db.Model, BaseModel):
     tile_number = db.Column(db.Integer, nullable=False)
     game_id = db.Column(db.Integer, db.ForeignKey("games.id"))
     player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=False)
+
+
+class Message(db.Model, BaseModel):
+    """Model for messages sent by players during games"""
+    __tablename__ = "messages"
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.Text, nullable=False)
+    player_id = db.Column(db.Integer, db.ForeignKey("players.id"))
+    game_id = db.Column(db.Integer, db.ForeignKey("games.id"))
+
+
+class Friendship(db.Model):
+    """Model for friendship amongst players"""
+    __tablename__ = "friendships"
+    id = db.Column(db.Integer, primary_key=True)
+    player1_id = db.Column(db.Integer, db.ForeignKey("players.id"))
+    player2_id = db.Column(db.Integer, db.ForeignKey("players.id"))
+
+
+class FriendRequest(db.Model):
+    """Model for friend requests"""
+    __tablename__ = "friend_requests"
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey("players.id"))
+    receiver_id = db.Column(db.Integer, db.ForeignKey("players.id"))
