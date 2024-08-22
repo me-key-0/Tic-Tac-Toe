@@ -35,6 +35,7 @@ class Player(db.Model, BaseModel):
     password = db.Column(db.String(25), nullable=False)
     playing = db.Column(db.Boolean, default=False) # This would come in handy if we choose to prohibit a user playing multiple games simultaneously
     score = db.Column(db.Integer, default=0)
+    won_games = db.relationship("Game", backref="winner")
     moves = db.relationship("Move", backref="moving_player")
     messages = db.relationship("Message", backref="messaging_player")
 
@@ -139,6 +140,7 @@ class Game(db.Model, BaseModel):
     code = db.Column(db.String(10), unique=True)
     difficulty = db.Column(db.Integer, default=0)
     finished = db.Column(db.Boolean, default=False)
+    winner_id = db.Column(db.Integer, db.ForeignKey("players.id"))
     moves = db.relationship("Move", backref="moved_game", # For lack of a better term
                             cascade="all, delete, delete-orphan")
     messages = db.relationship("Message", backref="messaged_game")
@@ -149,6 +151,14 @@ class Game(db.Model, BaseModel):
     def generate_random_code(self, length):
         return "".join(random.SystemRandom().choice(string.ascii_uppercase + string.digits)
                        for _ in range(length))
+    
+    def declare_winner(self, player_id):
+        """Change game state to finished and set the winner"""
+        self.winner_id = player_id
+        self.finished = True
+        db.session.add(self)
+        db.session.commit()
+
 
 
 class Move(db.Model, BaseModel):
