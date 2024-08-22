@@ -8,7 +8,7 @@ from flask_login import LoginManager
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 
-from config import Config
+from src.config import Config
 
 
 app = Flask(__name__)
@@ -23,4 +23,5 @@ cors = CORS(app, resources={
     r"/*": {"origins": "*"}
 })
 
-from backend import models, routes
+from src.models import *
+from src.routes import *
