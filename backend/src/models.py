@@ -76,13 +76,13 @@ class Player(db.Model, BaseModel):
         db.session.add(message)
         db.session.commit()
 
-    def send_friend_request(self, player_id):
+    def send_friend_request(self, player_username):
         """Sends a friend request to the player with given id"""
-        player = Player.query.get(player_id)
-        if player:
+        player = Player.query.filter_by(username=player_username).first()
+        if player and player is not self and player not in self.get_all_friends():
             friend_request = FriendRequest()
             friend_request.sender_id = self.id
-            friend_request.receiver_id = player_id
+            friend_request.receiver_id = player.id
             db.session.add(friend_request)
             db.session.commit()
             return True
@@ -107,23 +107,26 @@ class Player(db.Model, BaseModel):
     
     def get_all_friends(self):
         """Returns all friends of this player"""
-        friends = Friendship.query.filter(Friendship.player1_id == self.id
-                                          | Friendship.player2_id == self.id).all()
-        return friends
+        friendships = Friendship.query.filter((Friendship.player1_id == self.id)
+                                          | (Friendship.player2_id == self.id)).all()
+        return [Player.query.get(f_ship.player1_id)
+                if f_ship.player1_id != self.id
+                else Player.query.get(f_ship.player2_id)
+                for f_ship in friendships]
     
     def make_move(self, game_id, tile_number):
         """Makes a move in a single game"""
         game = Game.query.get(game_id)
         if game:
-            if Move.query.filter(Move.game_id == game_id
-                                 & Move.tile_number == tile_number):
+            if Move.query.filter((Move.game_id == game_id)
+                                 & (Move.tile_number == tile_number)).all():
                 return False
             move = Move()
             move.player_id = self.id
             move.game_id = game_id
             move.tile_number = tile_number
             db.session.add(move)
-            db.session.commit(move)
+            db.session.commit()
             return True
         return False
 
