@@ -74,8 +74,8 @@ class Player(db.Model, BaseModel):
                     gp_assoc.game_id = game.id
                     db.session.add(gp_assoc)
                     db.session.commit()
-                    return True
-        return False
+                    return game
+        return None
     
     def join_random_game(self):
         """Joins a random game from the available games"""
@@ -87,8 +87,8 @@ class Player(db.Model, BaseModel):
             assoc.player_id = self.id
             db.session.add(assoc)
             db.session.commit()
-            return True
-        return False
+            return random_game
+        return None
     
     def get_available_games(self):
         """Returns a list of all available/joinable games"""
