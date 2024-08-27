@@ -3,7 +3,7 @@
 Contains the models of the application.
 """
 import string
-import random
+import random, uuid
 from datetime import datetime
 
 from src import db
@@ -36,15 +36,15 @@ class GamePlayerAssociation(db.Model):
 class Player(db.Model, BaseModel):
     """Model for the game players"""
     __tablename__ = "players"
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     username = db.Column(db.String(25), nullable=False, unique=True)
     email = db.Column(db.String(120), nullable=False, unique=True)
     password = db.Column(db.String(25), nullable=False)
-    playing = db.Column(db.Boolean, default=False) # This would come in handy if we choose to prohibit a user playing multiple games simultaneously
+    """playing = db.Column(db.Boolean, default=False) # This would come in handy if we choose to prohibit a user playing multiple games simultaneously
     score = db.Column(db.Integer, default=0)
     won_games = db.relationship("Game", backref="winner")
     moves = db.relationship("Move", backref="moving_player")
-    messages = db.relationship("Message", backref="messaging_player")
+    messages = db.relationship("Message", backref="messaging_player")"""
 
     def create_game(self, difficulty):
         """Creates a new game of given difficulty and returns the instance"""
