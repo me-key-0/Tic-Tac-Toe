@@ -16,6 +16,13 @@ class BaseModel():
 
     def to_dict(self):
         return self.__dict__
+    
+    def __repr__(self):
+        """Formal representation of an instance"""
+        return "{}({})".format(
+            self.__class__.__name__,
+            ", ".join(["{}={}".format(key, val) for key, val in self.__dict__.items()])
+            )
 
 class GamePlayerAssociation(db.Model):
     """Association table between players and games"""
@@ -54,19 +61,41 @@ class Player(db.Model, BaseModel):
 
         return new_game
 
-    def join_game(self, code):
+    def join_game_with_code(self, code):
         """Joins an existing game with the given code"""
         game = Game.query.filter_by(code=code).first()
 
         if game:
-            gp_assoc = GamePlayerAssociation()
-            gp_assoc.player_id = self.id
-            gp_assoc.game_id = game.id
-            db.session.add(gp_assoc)
-            db.session.commit()
-            return True
-        return False
+            if len(game.game_players) == 1:
+                player1 = game.game_players[0].player
+                if self is not player1:
+                    gp_assoc = GamePlayerAssociation()
+                    gp_assoc.player_id = self.id
+                    gp_assoc.game_id = game.id
+                    db.session.add(gp_assoc)
+                    db.session.commit()
+                    return game
+        return None
     
+    def join_random_game(self):
+        """Joins a random game from the available games"""
+        available_games = self.get_available_games()
+        if available_games:
+            random_game = random.choice(available_games)
+            assoc = GamePlayerAssociation()
+            assoc.game_id = random_game.id
+            assoc.player_id = self.id
+            db.session.add(assoc)
+            db.session.commit()
+            return random_game
+        return None
+    
+    def get_available_games(self):
+        """Returns a list of all available/joinable games"""
+        all_games = Game.query.all()
+        available_games = [game for game in all_games if len(game.game_players) == 1]
+        return available_games
+
     def send_message(self, game_id, text):
         """Sends a message in the game chat"""
         message = Message()
@@ -102,6 +131,16 @@ class Player(db.Model, BaseModel):
             friendship.player2_id = request.receiver_id
             
             db.session.add(friendship)
+            db.session.delete(request)
+            db.session.commit()
+            return True
+        return False
+    
+    def reject_friend_request(self, request_id):
+        """Rejects a friend request"""
+        request = FriendRequest.query.get(request_id)
+        if request:
+            db.session.delete(request)
             db.session.commit()
             return True
         return False
@@ -138,9 +177,9 @@ class Game(db.Model, BaseModel):
     id = db.Column(db.Integer, primary_key=True)
 
     code = db.Column(db.String(10), unique=True)
-    difficulty = db.Column(db.Integer, default=0)
+    difficulty = db.Column(db.Integer, default=1)
     finished = db.Column(db.Boolean, default=False)
-    winner_id = db.Column(db.Integer, db.ForeignKey("players.id"))
+    winner_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
     moves = db.relationship("Move", backref="moved_game", # For lack of a better term
                             cascade="all, delete, delete-orphan")
     messages = db.relationship("Message", backref="messaged_game")
@@ -149,13 +188,28 @@ class Game(db.Model, BaseModel):
         self.code = self.generate_random_code(8)
 
     def generate_random_code(self, length):
+        """
+        Generate a random string of given length consisting of
+        uppercase letters and digits
+        """
         return "".join(random.SystemRandom().choice(string.ascii_uppercase + string.digits)
                        for _ in range(length))
     
     def declare_winner(self, player_id):
         """Change game state to finished and set the winner"""
-        self.winner_id = player_id
+        player = Player.query.get(player_id)
+        if player:
+            self.winner_id = player_id
+            self.finished = True
+            player.score += (self.difficulty * 100) # Tentative... To be changed on further notice
+            db.session.add(self)
+            db.session.add(player)
+            db.session.commit()
+
+    def declare_draw(self):
+        """Change game status to finished and set as a draw"""
         self.finished = True
+        self.winner_id = None
         db.session.add(self)
         db.session.commit()
 
