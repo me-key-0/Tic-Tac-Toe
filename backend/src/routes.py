@@ -1,6 +1,6 @@
 from flask import request, jsonify, session
 
-from src.models import Player
+from src.models import Game, Player
 from src import app, db, bcrypt
 
 
@@ -183,3 +183,15 @@ def get_previous_games():
         games = current_user.get_previous_games()
         return jsonify([game.to_dict() for game in games])
     return jsonify({"error": "Unauthorized"}), 401
+
+@app.route("/game_details/<game_id>")
+def get_game_details(game_id):
+    """Returns the details of a game"""
+    current_user = Player.query.get(session["user_id"])
+    if current_user:
+        game = Game.query.get(game_id)
+        if game:
+            return jsonify(game.to_dict())
+        return jsonify({"error": "Could not find game"}), 400
+    return jsonify({"error": "Unauthorized"}), 401
+    

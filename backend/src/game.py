@@ -142,4 +142,4 @@ def send_message(data):
     if game and not game.finished:
         text = data["text"]
         message = user.send_message(game.id, text)
-        emit("chat_message", message.to_dict(), json=True)
+        emit("chat_message", message.to_dict(), json=True, room=room)
