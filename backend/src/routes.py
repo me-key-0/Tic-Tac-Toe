@@ -135,7 +135,7 @@ def send_friend_request():
         return jsonify({"error": "Could not send friend request"}), 400
     return jsonify({"error": "Unauthorized"}), 401
 
-@app.route("/get_friend_requests")
+@app.route("/friend_requests")
 def get_friend_requests():
     """Returns all friend requests received by player"""
     current_user = Player.query.get(session["user_id"])
@@ -173,4 +173,13 @@ def get_friends():
     if current_user:
         friends = current_user.get_all_friends()
         return jsonify([friend.to_dict() for friend in friends])
+    return jsonify({"error": "Unauthorized"}), 401
+
+@app.route("/history")
+def get_previous_games():
+    """Retrieves all previous games of user"""
+    current_user = Player.query.get(session["user_id"])
+    if current_user:
+        games = current_user.get_previous_games()
+        return jsonify([game.to_dict() for game in games])
     return jsonify({"error": "Unauthorized"}), 401

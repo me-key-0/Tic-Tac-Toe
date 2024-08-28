@@ -179,6 +179,11 @@ class Player(BaseModel, db.Model, UserMixin):
             db.session.commit()
             return move
         return None
+    
+    def get_previous_games(self):
+        """Gets the previous games of a player"""
+        return [played_game.game for played_game in self.played_games
+        if played_game.game.finished]
 
 
 class Game(BaseModel, db.Model):
