@@ -2,7 +2,7 @@
 """
 Run the flask app when executed
 """
-from src import app
+from src import app, socketio
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    socketio.run(app, debug=True)
