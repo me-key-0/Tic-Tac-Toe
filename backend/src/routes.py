@@ -1,6 +1,13 @@
 from flask import request, jsonify, session
+
 from src.models import Player
 from src import app, db, bcrypt
+
+
+@app.before_request
+def manage_db():
+    db.create_all()
+    db.session.close()
 
 @app.route("/@me")
 def get_current_user():
@@ -53,7 +60,7 @@ def register_user():
     new_user = Player(username=username,email=email, password=hashed_password)
     db.session.add(new_user)
     db.session.commit()
-    
+  
     session["user_id"] = new_user.id
 
     return jsonify({
@@ -62,7 +69,7 @@ def register_user():
     })
 
 @app.route("/login", methods=["POST"])
-def login_user():
+def login_user_():
     """
     Log in an existing user.
 
@@ -80,6 +87,7 @@ def login_user():
     password = request.json["password"]
 
     user = Player.query.filter_by(email=email).first()
+    user = user or Player.query.filter_by(username=email).first()
 
     if user is None:
         return jsonify({"error": "Unauthorized"}), 401
@@ -104,6 +112,65 @@ def logout_user():
     Returns:
         - 200 OK: A JSON object with a success message.
     """
-    session.pop("user_id")
     return jsonify({"message": "Logged out successfully"}), 200
 
+@app.route("/available_games")
+def get_available_games():
+    """Get all available games"""
+    current_user = Player.query.get(session["user_id"])
+    if current_user:
+        games = current_user.get_available_games()
+        return jsonify([game.to_dict() for game in games])
+    return jsonify({"error": "Unauthorized"}), 401
+
+@app.route("/send_friend_request", methods=["POST"])
+def send_friend_request():
+    """Sends friend request to specified player"""
+    current_user = Player.query.get(session["user_id"])
+    if current_user:
+        post_data = request.json
+        friend_request = current_user.send_friend_request(post_data["username"])
+        if friend_request:
+            return jsonify(friend_request.to_dict())
+        return jsonify({"error": "Could not send friend request"}), 400
+    return jsonify({"error": "Unauthorized"}), 401
+
+@app.route("/get_friend_requests")
+def get_friend_requests():
+    """Returns all friend requests received by player"""
+    current_user = Player.query.get(session["user_id"])
+    if current_user:
+        friend_requests = current_user.get_friend_requests()
+        return jsonify([f_request.to_dict() for f_request in friend_requests])
+    return jsonify({"error": "Unauthorized"}), 401
+
+@app.route("/accept_friend_request", methods=["POST"])
+def accept_friend_request():
+    """Accepts a friend request"""
+    current_user = Player.query.get(session["user_id"])
+    if current_user:
+        friendship = current_user.accept_friend_request(request.json.get("request_id"))
+        if friendship:
+            return jsonify(friendship.to_dict())
+        return jsonify({"error": "Could not accept friend request"}), 400
+    return jsonify({"error": "Unauthorized"}), 401
+
+@app.route("/reject_friend_request", methods=["POST"])
+def reject_friend_request():
+    """Rejects friend request"""
+    current_user = Player.query.get(session["user_id"])
+    if current_user:
+        confirm = current_user.reject_friend_request(request.json.get("request_id"))
+        if confirm:
+            return jsonify(confirm.to_dict())
+        return jsonify({"error": "Could not accept friend request"}), 400
+    return jsonify({"error": "Unauthorized"}), 401
+
+@app.route("/friends")
+def get_friends():
+    """Returns all friends of requesting user"""
+    current_user = Player.query.get(session["user_id"])
+    if current_user:
+        friends = current_user.get_all_friends()
+        return jsonify([friend.to_dict() for friend in friends])
+    return jsonify({"error": "Unauthorized"}), 401

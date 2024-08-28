@@ -5,6 +5,7 @@ Contains the models of the application.
 import string
 import random, uuid
 from datetime import datetime
+from flask_login import UserMixin
 
 from src import db
 
@@ -14,37 +15,44 @@ class BaseModel():
     created_at = db.Column(db.DateTime(), default=datetime.utcnow)
     updated_at = db.Column(db.DateTime(), default=datetime.utcnow)
 
-    def to_dict(self):
-        return self.__dict__
-    
     def __repr__(self):
         """Formal representation of an instance"""
         return "{}({})".format(
             self.__class__.__name__,
-            ", ".join(["{}={}".format(key, val) for key, val in self.__dict__.items()])
+            ", ".join(["{}={}".format(key, val) for key, val in self.to_dict().items()])
             )
 
 class GamePlayerAssociation(db.Model):
     """Association table between players and games"""
     __tablename__ = "game_players"
-    player_id = db.Column(db.Integer, db.ForeignKey("players.id"), primary_key=True, nullable=True)
-    game_id = db.Column(db.Integer, db.ForeignKey("games.id"), primary_key=True)
+    player_id = db.Column(db.String(36), db.ForeignKey("players.id"), primary_key=True, nullable=True)
+    game_id = db.Column(db.String(36), db.ForeignKey("games.id"), primary_key=True)
     player = db.relationship("Player", backref="played_games")
     game = db.relationship("Game", backref="game_players")
 
 
-class Player(db.Model, BaseModel):
+class Player(BaseModel, db.Model, UserMixin):
     """Model for the game players"""
     __tablename__ = "players"
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     username = db.Column(db.String(25), nullable=False, unique=True)
     email = db.Column(db.String(120), nullable=False, unique=True)
-    password = db.Column(db.String(25), nullable=False)
-    """playing = db.Column(db.Boolean, default=False) # This would come in handy if we choose to prohibit a user playing multiple games simultaneously
+    password = db.Column(db.String(60), nullable=False)
+    playing = db.Column(db.Boolean, default=False) # This would come in handy if we choose to prohibit a user playing multiple games simultaneously
     score = db.Column(db.Integer, default=0)
     won_games = db.relationship("Game", backref="winner")
     moves = db.relationship("Move", backref="moving_player")
-    messages = db.relationship("Message", backref="messaging_player")"""
+    messages = db.relationship("Message", backref="messaging_player")
+
+    def to_dict(self):
+        """Dictionary representation"""
+        return {
+            "id": self.id,
+            "email": self.email,
+            "username": self.username,
+            "playing": self.playing,
+            "score": self.score,
+        }
 
     def create_game(self, difficulty):
         """Creates a new game of given difficulty and returns the instance"""
@@ -72,6 +80,7 @@ class Player(db.Model, BaseModel):
                     gp_assoc = GamePlayerAssociation()
                     gp_assoc.player_id = self.id
                     gp_assoc.game_id = game.id
+                    print(gp_assoc.player_id)
                     db.session.add(gp_assoc)
                     db.session.commit()
                     return game
@@ -105,6 +114,7 @@ class Player(db.Model, BaseModel):
 
         db.session.add(message)
         db.session.commit()
+        return message
 
     def send_friend_request(self, player_username):
         """Sends a friend request to the player with given id"""
@@ -115,8 +125,8 @@ class Player(db.Model, BaseModel):
             friend_request.receiver_id = player.id
             db.session.add(friend_request)
             db.session.commit()
-            return True
-        return False
+            return friend_request
+        return None
     
     def get_friend_requests(self):
         """Gets all friend requests sent to this player"""
@@ -133,8 +143,8 @@ class Player(db.Model, BaseModel):
             db.session.add(friendship)
             db.session.delete(request)
             db.session.commit()
-            return True
-        return False
+            return friendship
+        return None
     
     def reject_friend_request(self, request_id):
         """Rejects a friend request"""
@@ -167,25 +177,39 @@ class Player(db.Model, BaseModel):
             move.tile_number = tile_number
             db.session.add(move)
             db.session.commit()
-            return True
-        return False
+            return move
+        return None
 
 
-class Game(db.Model, BaseModel):
+class Game(BaseModel, db.Model):
     """Model for the tic-tac-toe game"""
     __tablename__ = "games"
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
     code = db.Column(db.String(10), unique=True)
     difficulty = db.Column(db.Integer, default=1)
     finished = db.Column(db.Boolean, default=False)
-    winner_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
+    winner_id = db.Column(db.String(36), db.ForeignKey("players.id"), nullable=True)
     moves = db.relationship("Move", backref="moved_game", # For lack of a better term
                             cascade="all, delete, delete-orphan")
     messages = db.relationship("Message", backref="messaged_game")
 
     def __init__(self):
         self.code = self.generate_random_code(8)
+
+    def to_dict(self):
+        """Dictionary representation"""
+        game_players = self.game_players
+        return {
+            "id": self.id,
+            "code": self.code,
+            "difficulty": self.difficulty,
+            "finished": self.finished,
+            "winner_id": self.winner_id,
+            "game_players": [game_player.player.to_dict() for game_player in game_players],
+            "moves": [move.to_dict() for move in self.moves],
+            "messages": [message.to_dict() for message in self.messages]
+        }
 
     def generate_random_code(self, length):
         """
@@ -215,35 +239,68 @@ class Game(db.Model, BaseModel):
 
 
 
-class Move(db.Model, BaseModel):
+class Move(BaseModel, db.Model):
     """Model for a single move in a game"""
     __tablename__ = "moves"
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     tile_number = db.Column(db.Integer, nullable=False)
-    game_id = db.Column(db.Integer, db.ForeignKey("games.id"))
-    player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=False)
+    game_id = db.Column(db.String(36), db.ForeignKey("games.id"))
+    player_id = db.Column(db.String(36), db.ForeignKey("players.id"), nullable=False)
+
+    def to_dict(self):
+        """Dictionary representation"""
+        return {
+            "id": self.id,
+            "tile_number": self.tile_number,
+            "game_id": self.game_id,
+            "player_id": self.player_id
+        }
 
 
-class Message(db.Model, BaseModel):
+class Message(BaseModel, db.Model):
     """Model for messages sent by players during games"""
     __tablename__ = "messages"
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     text = db.Column(db.Text, nullable=False)
-    player_id = db.Column(db.Integer, db.ForeignKey("players.id"))
-    game_id = db.Column(db.Integer, db.ForeignKey("games.id"))
+    player_id = db.Column(db.String(36), db.ForeignKey("players.id"))
+    game_id = db.Column(db.String(36), db.ForeignKey("games.id"))
+
+    def to_dict(self):
+        """Dictionary representation"""
+        return {
+            "id": self.id,
+            "text": self.text,
+            "player_id": self.player_id,
+            "game_id": self.game_id
+        }
 
 
 class Friendship(db.Model):
     """Model for friendship amongst players"""
     __tablename__ = "friendships"
-    id = db.Column(db.Integer, primary_key=True)
-    player1_id = db.Column(db.Integer, db.ForeignKey("players.id"))
-    player2_id = db.Column(db.Integer, db.ForeignKey("players.id"))
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    player1_id = db.Column(db.String(36), db.ForeignKey("players.id"))
+    player2_id = db.Column(db.String(36), db.ForeignKey("players.id"))
 
+    def to_dict(self):
+        """Dictionary representation"""
+        return {
+            "id": self.id,
+            "player1": Player.query.get(self.player1_id).to_dict(),
+            "player2": Player.query.get(self.player2_id).to_dict()
+        }
 
 class FriendRequest(db.Model):
     """Model for friend requests"""
     __tablename__ = "friend_requests"
-    id = db.Column(db.Integer, primary_key=True)
-    sender_id = db.Column(db.Integer, db.ForeignKey("players.id"))
-    receiver_id = db.Column(db.Integer, db.ForeignKey("players.id"))
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    sender_id = db.Column(db.String(36), db.ForeignKey("players.id"))
+    receiver_id = db.Column(db.String(36), db.ForeignKey("players.id"))
+
+    def to_dict(self):
+        """Dictionary representation"""
+        return {
+            "id": self.id,
+            "sender": Player.get(self.sender_id).to_dict(),
+            "receiver": Player.get(self.receiver_id).to_dict()
+        }
