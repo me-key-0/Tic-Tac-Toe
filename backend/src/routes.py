@@ -28,6 +28,7 @@ def get_current_user():
     user = Player.query.filter_by(id=user_id).first()
     return jsonify({
         "id": user.id,
+        "username": user.username,
         "email": user.email
     }) 
 
@@ -195,3 +196,17 @@ def get_game_details(game_id):
         return jsonify({"error": "Could not find game"}), 400
     return jsonify({"error": "Unauthorized"}), 401
     
+@app.route('/leaderboard', methods=['GET'])
+def get_leaderboard():
+    """
+    Get the leaderboard with the top players based on their scores.
+
+    Response:
+    - 200 OK: List of players with their usernames and scores.
+    """
+    top_players = Player.query.order_by(Player.score.desc()).limit(10).all() # Limit to top 10 players
+    leaderboard = [{
+        'username': player.username,
+        'score': player.score
+    } for player in top_players]
+    return jsonify(leaderboard), 200
