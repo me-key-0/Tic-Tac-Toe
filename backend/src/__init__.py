@@ -34,4 +34,5 @@ cors = CORS(app, resources={
 })
 
 from src.models import *
-from src.auth import *
+from src.game import *
+from src.routes import *

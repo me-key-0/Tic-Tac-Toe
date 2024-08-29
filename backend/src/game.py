@@ -1,11 +1,17 @@
+#!/usr/bin/python3
+"""
+Contains the game logic
+"""
 from flask import request, session, json
-from src.models import  Game
-from src import db,  redis_conn, socketio
-from flask_socketio import join_room, send
+from flask_login import current_user
+from flask_socketio import emit, join_room, send
+
+from src.models import Player, Game, Message
+from src import db,  redis_conn, socketio, login_manager
 
 
 @socketio.on('create_game')
-def on_create_game():
+def on_create_game(data):
     """
     Socket event handler for creating a new game.
     This function is triggered when a client sends a 'create_game' event. It creates a new game 
@@ -13,14 +19,13 @@ def on_create_game():
     initializes the game state, and sends a message to the room announcing the creation of the game.
     
     """
-    username = session.get('username')
-    game = Game()
-    db.session.add(game)
-    db.session.commit()
+    difficulty = data.get("difficulty", 1)
+    user: Player = Player.query.get(session["user_id"])
+    game = user.create_game(difficulty)
     room = game.code
     join_room(room)
     save_game_state(room, create_game_state())
-    send(f"{username} has created game {room}", room=room)
+    emit("game_created", f"{user.username} has created game {room}", room=room)
 
 @socketio.on('join_game')
 def on_join_game(data):
@@ -33,14 +38,19 @@ def on_join_game(data):
     Args:
         data (dict): The data sent from the client, expected to contain the 'game_code' to identify the game to join.
     """
-    username = session.get('username')
-    room = data['game_code']
-    game = Game.query.filter_by(code=room).first()
+    user: Player = Player.query.get(session["user_id"])
+    room = data.get('game_code')
+    if room:
+        game = Game.query.filter_by(code=room).first()
+        if game and not game.finished:
+            user.join_game_with_code(room)
+    else:
+        game = user.join_random_game()
     if game and not game.finished:
         join_room(room)
-        send(f"{username} has joined the game {room}", room=room)
+        emit("game_joined", f"{user.username} has joined the game {room}", room=room)
     else:
-        send("Game not found or already finished.", room=request.sid)
+        emit("join_error", "Game not found or already finished.", room=request.sid)
 
 @socketio.on('make_move')
 def on_make_move(data):
@@ -53,12 +63,15 @@ def on_make_move(data):
         data (dict): The data sent from the client, expected to contain 'game_code' to identify the game and 'tile_number' 
                      to specify the move made by the player.
     """
+    user: Player = Player.query.get(session["user_id"])
     room = data['game_code']
+    game = Game.query.filter_by(code=room)
     tile_number = data['tile_number']
     state = get_game_state(room)
     if state["board"][tile_number] == "" and not state["finished"]:
         state["board"][tile_number] = state["turn"]
         state["turn"] = "O" if state["turn"] == "X" else "X"
+        user.make_move(game.id, tile_number)
         winner = check_winner(state["board"])
         if winner:
             state["winner"] = winner
@@ -66,7 +79,7 @@ def on_make_move(data):
             game = Game.query.filter_by(code=room).first()
             game.declare_winner(session.get('user_id'))
         save_game_state(room, state)
-        send(state, room=room)
+        emit("game_state", state, room=room)
 
 def check_winner(board):
     """
@@ -111,3 +124,22 @@ def save_game_state(game_code, state):
 def get_game_state(game_code):
     state = redis_conn.get(game_code)
     return json.loads(state) if state else create_game_state()
+
+
+@socketio.on("chat_message")
+def send_message(data):
+    """
+    Socket event handler for sending a message in the chat of the game.
+    This function is triggered when a client sends a 'chat_message' event. It checks if the game
+    is a valid and unfinished game, creates the Message object and emits the message to all players in room.
+    Args:
+        data (dict): The data sent from the client, expected to contain 'game_code' to identify the game, and
+        'text' containing the text of the message
+    """
+    user: Player = Player.query.get(session["user_id"])
+    room = data["game_code"]
+    game = Game.query.filter_by(code=room)
+    if game and not game.finished:
+        text = data["text"]
+        message = user.send_message(game.id, text)
+        emit("chat_message", message.to_dict(), json=True, room=room)
