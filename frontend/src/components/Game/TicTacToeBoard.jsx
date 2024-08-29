@@ -8,7 +8,7 @@ const TicTacToeBoard = ({ player, opponent }) => {
 
   useEffect(() => {
     // Fetch current game status from API
-    getCurrentGameStatus().then((data) => {
+    getCurrentGameStatus().then(data => {
       setBoard(data.board);
       setIsPlayerTurn(data.isPlayerTurn);
     });
@@ -38,16 +38,18 @@ const TicTacToeBoard = ({ player, opponent }) => {
   };
 
   return (
-    <>
-      <div className="flex justify-center items-center h-screen border-3 border-black">
-        <div className="grid grid-rows-3 grid-flow-col gap-1">
-          {Array(9)
-            .fill(null)
-            .map((_, index) => renderSquare(index))}
-        </div>
+    <div>
+      <div className="grid grid-cols-3 gap-2">
+        {Array(9)
+          .fill(null)
+          .map((_, index) => (
+            // <div key={index} className="border border-black">
+              renderSquare(index)
+            // </div>
+          ))}
       </div>
       <div className="mt-4">{status}</div>
-    </>
+    </div>
   );
 };
 
