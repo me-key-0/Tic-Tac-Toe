@@ -55,31 +55,89 @@ def on_join_game(data):
 @socketio.on('make_move')
 def on_make_move(data):
     """
-    Socket event handler for making a move in the game.
-    This function is triggered when a client sends a 'make_move' event. It processes the move by checking if the move 
-    is valid, updating the game state, checking for a winner, and saving the updated game state. If a move results in 
-    a win or a draw, it updates the game accordingly and sends the current state to all players in the game room.
-    Args:
-        data (dict): The data sent from the client, expected to contain 'game_code' to identify the game and 'tile_number' 
-                     to specify the move made by the player.
+    Handle a player's move in a Tic-Tac-Toe game.
+    This function processes a move made by a player in a Tic-Tac-Toe game. It updates the game state,
+    checks for a winner, and emits the updated game state to the players.
+    Parameters:
+        data (dict): A dictionary containing the following keys:
+            - 'game_code' (string): The unique code identifying the game room.
+            - 'tile_number' (int): The index of the tile where the player wants to make a move.
+    Session:
+        - 'user_id' (string): The ID of the current player making the move, retrieved from the session.
+    Game Logic:
+        - If it's the AI's turn (player 'O') in single-player mode, the AI makes a move.
+        - Checks if the selected tile is empty and the game is not finished.
+        - Updates the game board with the player's move and switches the turn.
+        - Checks if the current move resulted in a win or draw:
+            - Updates the game state to indicate a win or draw.
+            - Calls `declare_winner()` to set the winner if applicable.
+    Emits:
+        - 'game_state_update' (dict): The updated game state to all players in the game room.
+    Sends:
+        - A message indicating the game is over and announcing the winner to all players in the game room.
+
+    Game State:
+        - The game state is a dictionary with the following structure:
+            - 'board' (list): A list representing the game board, where each element is 'X', 'O', or ''.
+            - 'turn' (string): Indicates whose turn it is ('X' or 'O').
+            - 'winner' (string or None): The winner of the game ('X', 'O', or 'Draw').
+            - 'finished' (bool): Indicates whether the game has finished.
+    Examples:
+        Player's move:
+            data = {
+                "game_code": "AB1234",
+                "tile_number": 4
+            }
+        AI's move (in single-player mode):
+            AI automatically picks a move based on the game state.
     """
-    user: Player = Player.query.get(session["user_id"])
     room = data['game_code']
-    game = Game.query.filter_by(code=room)
     tile_number = data['tile_number']
+    player_id = session.get('user_id')
+
     state = get_game_state(room)
+    
+    # If it's the AI's turn, let the AI make a move
+    if state["turn"] == "O" and is_single_player_mode(room):
+        ai_move = find_best_move(state["board"])
+        tile_number = ai_move
+        player_id = None  # AI has no player_id
+
+    # Check for a valid move
     if state["board"][tile_number] == "" and not state["finished"]:
         state["board"][tile_number] = state["turn"]
         state["turn"] = "O" if state["turn"] == "X" else "X"
-        user.make_move(game.id, tile_number)
         winner = check_winner(state["board"])
+
         if winner:
             state["winner"] = winner
             state["finished"] = True
-            game = Game.query.filter_by(code=room).first()
-            game.declare_winner(session.get('user_id'))
+            if winner == "X" or winner == "O":
+                game = Game.query.filter_by(code=room).first()
+                game.declare_winner(player_id)  # For 'O', player_id is None (AI)
+            send(f"Game over! Winner: {winner}", room=room)
+
         save_game_state(room, state)
-        emit("game_state", state, room=room)
+        emit('game_state_update', state, room=room)
+
+@socketio.on("chat_message")
+def send_message(data):
+    """
+    Socket event handler for sending a message in the chat of the game.
+    This function is triggered when a client sends a 'chat_message' event. It checks if the game
+    is a valid and unfinished game, creates the Message object and emits the message to all players in room.
+    Args:
+        data (dict): The data sent from the client, expected to contain 'game_code' to identify the game, and
+        'text' containing the text of the message
+    """
+    user: Player = Player.query.get(session["user_id"])
+    room = data["game_code"]
+    game = Game.query.filter_by(code=room)
+    if game and not game.finished:
+        text = data["text"]
+        message = user.send_message(game.id, text)
+        emit("chat_message", message.to_dict(), json=True, room=room)
+
 
 def check_winner(board):
     """
@@ -106,17 +164,14 @@ def check_winner(board):
         return "Draw"
     return None
 
-def create_game_state():
-    """
-    Initialize a new game state with an empty board.
-    This function returns the initial state for a new game of Tic-Tac-Toe, including an empty board, the first player's turn, 
-    and flags for the winner and whether the game is finished.
-    Returns:
-        dict: A dictionary representing the initial game state.
-    """
-    
+def create_game_state(single_player_mode=False):
     # Initialize a new game state with an empty board
-    return {"board": [""] * 9, "turn": "X", "winner": None, "finished": False}
+    state = {"board": [""] * 9, "turn": "X", "winner": None, "finished": False}
+    if single_player_mode:
+        state["player_x_id"] = session.get('user_id')  # Player
+        state["player_o_id"] = None  # AI
+    return state
+
 
 def save_game_state(game_code, state):
     redis_conn.set(game_code, json.dumps(state))
@@ -126,20 +181,59 @@ def get_game_state(game_code):
     return json.loads(state) if state else create_game_state()
 
 
-@socketio.on("chat_message")
-def send_message(data):
+
+def minimax(board, depth, is_maximizing, ai_marker, player_marker):
     """
-    Socket event handler for sending a message in the chat of the game.
-    This function is triggered when a client sends a 'chat_message' event. It checks if the game
-    is a valid and unfinished game, creates the Message object and emits the message to all players in room.
-    Args:
-        data (dict): The data sent from the client, expected to contain 'game_code' to identify the game, and
-        'text' containing the text of the message
+    Minimax algorithm to determine the best move for the AI.
+
+    :param board: List representing the game board
+    :param depth: Current depth in the game tree
+    :param is_maximizing: Boolean to check if the current move is maximizing or minimizing
+    :param ai_marker: The marker used by the AI ('X' or 'O')
+    :param player_marker: The marker used by the player ('X' or 'O')
+    :return: Best score
     """
-    user: Player = Player.query.get(session["user_id"])
-    room = data["game_code"]
-    game = Game.query.filter_by(code=room)
-    if game and not game.finished:
-        text = data["text"]
-        message = user.send_message(game.id, text)
-        emit("chat_message", message.to_dict(), json=True, room=room)
+    winner = check_winner(board)
+    if winner == ai_marker:
+        return 1
+    elif winner == player_marker:
+        return -1
+    elif winner == "Draw":
+        return 0
+
+    if is_maximizing:
+        best_score = -float("inf")
+        for i in range(9):
+            if board[i] == "":
+                board[i] = ai_marker
+                score = minimax(board, depth + 1, False, ai_marker, player_marker)
+                board[i] = ""
+                best_score = max(score, best_score)
+        return best_score
+    else:
+        best_score = float("inf")
+        for i in range(9):
+            if board[i] == "":
+                board[i] = player_marker
+                score = minimax(board, depth + 1, True, ai_marker, player_marker)
+                board[i] = ""
+                best_score = min(score, best_score)
+        return best_score
+
+def find_best_move(board):
+    best_score = -float('inf')
+    best_move = None
+    for i in range(9):
+        if board[i] == "":
+            board[i] = "O"
+            score = minimax(board, 0, False)
+            board[i] = ""
+            if score > best_score:
+                best_score = score
+                best_move = i
+    return best_move
+
+def is_single_player_mode(room):
+    state = get_game_state(room)
+    return state.get("player_o_id") is None
+
